@@ -318,6 +318,20 @@ class ReplyHandler:
             # 这样AI服务商的前缀缓存（prefix caching）可以命中静态部分，降低调用成本。
             # 注意: 视频/文件路径已通过 enrich_media_markers 内联注入到 formatted_message
 
+            # 🆕 v1.2.3.hotfix.2: 构建对话对象再确认 + 反元兜底（追加在 prompt 末尾，
+            # 确保 AI 在读完所有历史/缓存/窗口缓冲消息后仍明确当前对话对象和输出要求）
+            _sender_tail = ""
+            if include_sender_info and sender_name:
+                _sender_tail = (
+                    f"\n\n[对话对象确认] 你正在和 {sender_name}（ID:{sender_id}）对话，"
+                    f"请围绕 ta 的话题回复，不要混淆历史中其他用户的发言。"
+                    f"历史中【📦近期未回复】标记的缓存消息也是完整对话的一部分"
+                    f"——特别是当前消息内容较少时（如仅@你、空消息），"
+                    f"需要主动结合这些缓存消息来理解对方的意图。"
+                    f"\n\n[最终要求] 直接输出你要说的那句话。"
+                    f"禁止输出任何解释、判断过程、过渡句或思考内容。像真人聊天一样，直接说。"
+                )
+
             if prompt_mode == "override" and extra_prompt and extra_prompt.strip():
                 # 覆盖模式：用户自定义提示词在前（静态），动态内容在后
                 # 🔧 v1.2.2-hotfix.1: sender_emphasis 提前到 formatted_message 之前，
@@ -335,6 +349,7 @@ class ReplyHandler:
                     + fatigue_closing_prompt
                     + pending_reply_hint
                     + single_at_message_reply_hint
+                    + _sender_tail
                     + "\n\n---\n以上是消息上下文，请直接输出你的回复（不要无脑复读用户的消息，除非场景确实需要）"
                 )
                 if DEBUG_MODE:
@@ -358,6 +373,7 @@ class ReplyHandler:
                     + fatigue_closing_prompt
                     + pending_reply_hint
                     + single_at_message_reply_hint
+                    + _sender_tail
                     + "\n\n---\n以上是消息上下文，请直接输出你的回复（不要无脑复读用户的消息，除非场景确实需要）"
                 )
 
@@ -547,7 +563,9 @@ class ReplyHandler:
         """
         检查消息是否已被其他插件处理
 
-        用于@消息兼容，避免重复回复
+        通过 _has_send_oper 标记判断，该标记在 event.send() 被调用后永久置为 True，
+        不受框架 clear_result() 影响（框架在 handler 之间会清除 event.result，
+        导致 get_result() 始终返回 None，因此不能依赖 get_result()）。
 
         Args:
             event: 消息事件
@@ -555,46 +573,4 @@ class ReplyHandler:
         Returns:
             True=已有回复，False=尚未回复
         """
-        try:
-            # 检查event的result字段
-            # 如果已经有result,说明已经被处理了
-            result = event.get_result()
-
-            if result is None:
-                return False
-
-            # AstrBot 会将字符串结果转换为 MessageEventResult
-            if isinstance(result, MessageEventResult):
-                has_stream = bool(getattr(result, "async_stream", None))
-                has_chain = bool(getattr(result, "chain", []) or [])
-                is_llm = bool(
-                    getattr(result, "is_llm_result", None) and result.is_llm_result()
-                )
-                is_stopped = bool(
-                    getattr(result, "result_type", None) == EventResultType.STOP
-                )
-                is_stream_state = bool(
-                    getattr(result, "result_content_type", None)
-                    in {
-                        ResultContentType.STREAMING_RESULT,
-                        ResultContentType.STREAMING_FINISH,
-                    }
-                )
-
-                if has_stream or has_chain or is_llm or is_stopped or is_stream_state:
-                    logger.info("检测到该消息已经被其他插件处理")
-                    return True
-
-                return False
-
-            # 未知类型的结果，保持向后兼容：只要非空视为已处理
-            if result:
-                logger.info("检测到该消息已经被其他插件处理")
-                return True
-
-            return False
-
-        except Exception as e:
-            logger.error(f"检查消息是否已回复时发生错误: {e}")
-            # 发生错误时,为安全起见,返回True避免重复回复
-            return True
+        return getattr(event, "_has_send_oper", False)
