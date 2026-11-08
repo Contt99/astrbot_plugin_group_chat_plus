@@ -17,7 +17,10 @@ from astrbot.api.all import *
 from astrbot.api.message_components import Face, At, Reply
 from .private_chat_image_description_cache import ImageDescriptionCache
 from ...utils.ai_error_formatter import format_ai_error
-from ...utils.image_handler import ImageHandler as _GroupImageHandler
+from ...utils.image_handler import (
+    ImageHandler as _GroupImageHandler,
+    image_content_key,
+)
 
 # 详细日志开关
 DEBUG_MODE: bool = False
@@ -415,8 +418,10 @@ class ImageHandler:
                         )
 
                     # === 省钱逻辑：先检查缓存 ===
+                    # 🔧 缓存键用图片内容摘要，本地临时文件名每次都变，拿路径当键永不命中
+                    cache_key = image_content_key(image_path) or image_path
                     if image_description_cache and image_description_cache.enabled:
-                        cached_desc = image_description_cache.lookup(image_path)
+                        cached_desc = image_description_cache.lookup(cache_key)
                         if cached_desc:
                             image_descriptions[idx] = cached_desc
                             logger.info(
@@ -462,8 +467,8 @@ class ImageHandler:
 
                         # 保存到缓存
                         if image_description_cache and image_description_cache.enabled:
-                            if not image_description_cache.lookup(image_path):
-                                image_description_cache.save(image_path, description)
+                            if not image_description_cache.lookup(cache_key):
+                                image_description_cache.save(cache_key, description)
 
                 except asyncio.TimeoutError:
                     logger.warning(

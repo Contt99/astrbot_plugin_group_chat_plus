@@ -9895,6 +9895,19 @@ class ChatPlus(Star):
             single_at_message_context,  # 单独无信息@消息的结构化上下文
         ) = result
 
+        # 🔧 纯图片消息的 event.message_str 恒为空串：图片转文字的结果只落在
+        # processed_message 里，从未回写事件对象。下游凡是以 event.message_str
+        # 取查询词的地方（LivingMemory 记忆检索、消息落库）都拿不到内容，
+        # 表现为「[LivingMemory-v2模式] 无法获取用户消息内容」并直接跳过召回。
+        # 这里在图片处理完成之后回填，仅在原本为空时生效；截断到 300 字，
+        # 避免一段七八百字的画面描述挤占记忆与上下文预算。
+        if not (getattr(event, "message_str", "") or "").strip():
+            _fallback_query = (message_text or "").strip()
+            if _fallback_query:
+                if len(_fallback_query) > 300:
+                    _fallback_query = _fallback_query[:300] + "…"
+                event.message_str = _fallback_query
+
         def _build_current_message_for_ai(current_text: str) -> str:
             _is_empty_at = MessageCleaner.is_empty_at_message(
                 original_message_text,

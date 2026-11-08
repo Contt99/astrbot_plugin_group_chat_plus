@@ -13,6 +13,7 @@
 """
 
 import asyncio
+import hashlib
 from typing import List, Optional, Tuple, Any
 from astrbot.api.all import *
 from astrbot.api.message_components import Face, At, AtAll, Reply
@@ -33,6 +34,29 @@ from .ai_error_formatter import format_ai_error
 
 # 详细日志开关（与 main.py 同款方式：单独用 if 控制）
 DEBUG_MODE: bool = False
+
+
+def image_content_key(path: str) -> str:
+    """计算图片内容摘要，作为描述缓存的键。
+
+    本地临时文件名形如 media_image_<毫秒时间戳>_<4位随机>.jpg，
+    每下载一次就换一个名字，拿它当缓存键永远命中不了。
+    这里改用文件内容摘要，同一张图无论下载多少次都是同一个键。
+
+    Args:
+        path: 本地图片文件路径
+
+    Returns:
+        形如 "sha1:<hex>" 的键；读取失败时返回空串
+    """
+    try:
+        digest = hashlib.sha1()
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+        return "sha1:" + digest.hexdigest()
+    except Exception:
+        return ""
 
 
 class ImageHandler:
@@ -666,8 +690,12 @@ class ImageHandler:
                         logger.info(f"正在转换图片 {idx}: {image_path}")
 
                     # 🆕 v1.2.0: 先检查本地缓存，命中则跳过AI调用
+                    # 🔧 缓存键改用图片内容摘要：本地临时文件名带毫秒时间戳与随机串，
+                    # 每下载一次就换一个名字，用路径当键等同于永不命中，
+                    # 同一张图会被反复送去识别、反复计费。
+                    cache_key = image_content_key(image_path) or image_path
                     if image_description_cache and image_description_cache.enabled:
-                        cached_desc = image_description_cache.lookup(image_path)
+                        cached_desc = image_description_cache.lookup(cache_key)
                         if cached_desc:
                             image_descriptions[idx] = cached_desc
                             logger.info(
@@ -701,8 +729,8 @@ class ImageHandler:
                         # 🔧 防御性编程：保存前再次检查缓存中是否已存在
                         # 场景：并发处理两条含相同图片的消息，或平台描述已提前写入缓存
                         if image_description_cache and image_description_cache.enabled:
-                            if not image_description_cache.lookup(image_path):
-                                image_description_cache.save(image_path, description)
+                            if not image_description_cache.lookup(cache_key):
+                                image_description_cache.save(cache_key, description)
 
                 except asyncio.TimeoutError:
                     logger.warning(
