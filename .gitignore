@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.astrbot-plugin/
+data/
