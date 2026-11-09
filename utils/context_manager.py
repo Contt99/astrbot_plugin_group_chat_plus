@@ -21,7 +21,7 @@ import asyncio
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from ._session_guard import guard_session
 from .message_processor import MessageProcessor
 
@@ -911,7 +911,13 @@ class ContextManager:
             # 处理时间戳
             if hasattr(history_item, "created_at") and history_item.created_at:
                 if isinstance(history_item.created_at, datetime):
-                    msg.timestamp = int(history_item.created_at.timestamp())
+                    _created = history_item.created_at
+                    # platform_message_history.created_at 存的是 naive UTC
+                    # （AstrBot po.py 用 datetime.now(timezone.utc) 写入，但列不带时区），
+                    # 直接 .timestamp() 会按本地时区解释，结果早 N 小时。
+                    if _created.tzinfo is None:
+                        _created = _created.replace(tzinfo=timezone.utc)
+                    msg.timestamp = int(_created.timestamp())
                 else:
                     msg.timestamp = 0
             else:

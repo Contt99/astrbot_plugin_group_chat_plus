@@ -323,8 +323,9 @@ class ReplyHandler:
             _sender_tail = ""
             if include_sender_info and sender_name:
                 _sender_tail = (
-                    f"\n\n[对话对象确认] 你正在和 {sender_name}（ID:{sender_id}）对话，"
-                    f"请围绕 ta 的话题回复，不要混淆历史中其他用户的发言。"
+                    f"\n\n[对话对象确认] 当前这条消息来自 {sender_name}（ID:{sender_id}）。"
+                    f"但他也可能是在跟历史中的其他人说话——如果这条没有 @你、也没有引用你，"
+                    f"先判断他是在跟谁说话，再决定要不要接。确认对象后，不要混淆历史中其他用户的发言。"
                     f"历史中【📦近期未回复】标记的缓存消息也是完整对话的一部分"
                     f"——特别是当前消息内容较少时（如仅@你、空消息），"
                     f"需要主动结合这些缓存消息来理解对方的意图。"
